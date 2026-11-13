@@ -62,6 +62,19 @@ h2{font-size:clamp(40px,11vw,56px)}
 .tbtn{font-family:var(--font-body);font-weight:800;font-size:14px;color:var(--ink);background:#fff;border:3px solid var(--ink);border-radius:10px;padding:3px 10px;cursor:pointer}
 .tbtn:hover{background:var(--sun)}
 .tbtn:focus-visible{outline:3px solid var(--hot);outline-offset:2px}
+.tbtn.on{background:var(--ink);color:var(--paper)}
+.chips{display:flex;flex-wrap:wrap;gap:4px 6px;justify-content:center}
+.chips span{font-weight:800;font-size:13px;background:#fff;border:2px solid var(--ink);border-radius:999px;padding:0 9px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.namein{font-family:var(--font-body);font-weight:800;font-size:16px;color:var(--ink);background:#fff;border:3px solid var(--ink);border-radius:10px;padding:3px 10px;width:150px;min-width:0;text-align:center;-webkit-user-select:text;user-select:text}
+.namein:focus-visible{outline:3px solid var(--hot);outline-offset:2px}
+.lbbox{display:flex;flex-direction:column;gap:5px;max-height:min(46vh,330px);overflow-y:auto;text-align:left;padding:2px 4px 2px 0}
+.lbrow{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:8px;align-items:center;padding:3px 10px;background:#fff;border:2px solid var(--ink);border-radius:10px;font-weight:800;font-size:15px;line-height:1.2}
+.lbrow.me{background:var(--sun)}
+.lbrow .r{font-family:var(--font-display);font-size:22px;text-align:center}
+.lbrow .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbrow small{display:block;font-weight:700;font-size:12px;color:#5a3d57;white-space:normal}
+.lbrow .v{font-family:var(--font-display);font-size:24px;font-variant-numeric:tabular-nums;text-align:right}
+.lbrow .v small{font-family:var(--font-body);text-align:right}
 
 .round{position:absolute;display:grid;place-items:center;border:4px solid var(--ink);border-radius:50%;cursor:pointer;
   font-family:var(--font-display);color:var(--ink);touch-action:none}
@@ -92,7 +105,10 @@ h2{font-size:clamp(40px,11vw,56px)}
       </ul>
       <button id="play" class="btn" type="button">Décoller</button>
       <p class="small">Record à battre : <span id="menubest">0</span></p>
-      <button id="trainbtn" class="btn alt" type="button">Entraînement</button>
+      <div class="tgrid">
+        <button id="trainbtn" class="btn alt" type="button">Entraînement</button>
+        <button id="lbbtn" class="btn alt" type="button" hidden>Classement</button>
+      </div>
     </div>
   </div>
 
@@ -130,8 +146,33 @@ h2{font-size:clamp(40px,11vw,56px)}
         <span><strong id="obest">0</strong>record</span>
         <span><strong id="olevel">1</strong>niveau</span>
       </div>
-      <p class="small" id="ostats"></p>
+      <div class="chips" id="ostats"></div>
+      <div class="tgrid" id="oname" hidden>
+        <input id="namein" class="namein" type="text" maxlength="14" placeholder="Ton pseudo" aria-label="Ton pseudo pour le classement" autocomplete="off">
+        <button id="namego" class="tbtn" type="button">Envoyer mon score</button>
+      </div>
+      <p class="small" id="osend" hidden></p>
       <button id="again" class="btn" type="button">Recommencer</button>
+      <button id="olb" class="btn alt" type="button" hidden>Classement</button>
+    </div>
+  </div>
+
+  <div id="lb" class="overlay" hidden>
+    <div class="card">
+      <h2>Classement</h2>
+      <div class="tgrid" id="lbtabs">
+        <button class="tbtn" type="button" data-tab="scores">Scores</button>
+        <button class="tbtn" type="button" data-tab="titles">Titres</button>
+        <button class="tbtn" type="button" data-tab="minis">Mini-jeux</button>
+        <button class="tbtn" type="button" data-tab="runs">Dernières parties</button>
+      </div>
+      <div class="lbbox" id="lbbox"></div>
+      <p class="small" id="lbmsg"></p>
+      <div class="tgrid" id="lbname">
+        <input id="lbin" class="namein" type="text" maxlength="14" placeholder="Ton pseudo" aria-label="Ton pseudo pour le classement" autocomplete="off">
+        <button id="lbset" class="tbtn" type="button">Changer de pseudo</button>
+      </div>
+      <button id="lbback" class="btn alt" type="button">Retour</button>
     </div>
   </div>
 </div>
@@ -292,6 +333,118 @@ const stars = Array.from({ length: 70 }, (_, i) => ({ x: hash(i + 1), y: hash(i 
 
 try { best = +localStorage.getItem('flappy-seb-best') || 0; } catch (e) {}
 
+/* ---------- Statistiques de partie ---------- */
+const ST = {};
+function resetStats() { Object.assign(ST, { t: 0, dist: 0, pigeons: 0, toasters: 0, mines: 0, walls: 0, coins: 0, bosses: 0, perfect: 0, graze: 0, items: 0, minis: {} }); }
+resetStats();
+function runStats() {
+  return { score, level, dist: Math.round(ST.dist / 40), t: Math.round(ST.t), pigeons: ST.pigeons, toasters: ST.toasters, mines: ST.mines, walls: ST.walls, coins: ST.coins, bosses: ST.bosses, perfect: ST.perfect, graze: ST.graze, minis: { ...ST.minis } };
+}
+
+/* ---------- Classement en ligne : Firestore par son API REST ---------- */
+// Config Firebase, publique par nature. Vide : pas de classement.
+const FB = { project: '', key: '' };
+const PAGES = 'valoutre.github.io/flappy-seb';
+// La borne d'arcade de Seb Quest (iframe) n'a pas de classement
+const LB = { on: !!FB.project && parent === window, dead: false, name: '', rows: null, runs: null, tab: 'scores', busy: false, from: 'menu' };
+try { LB.name = localStorage.getItem('flappy-seb-name') || ''; } catch (e) {}
+const SUMS = ['games', 'pigeons', 'toasters', 'mines', 'walls', 'coins', 'bosses', 'perfect', 'graze'];
+const TITLES = [
+  { k: 'pigeons', icon: '🐦', name: 'Tueur de pigeons', what: 'pigeons abattus' },
+  { k: 'toasters', icon: '🍞', name: 'Fléau des grille-pains', what: 'grille-pains abattus' },
+  { k: 'walls', icon: '🧱', name: 'Démolisseur', what: 'murs pulvérisés' },
+  { k: 'dist', icon: '📏', name: 'Marathonien', what: 'mètres en une partie' },
+  { k: 'coins', icon: '🥐', name: 'Roi du croissant', what: 'croissants ramassés' },
+  { k: 'bosses', icon: '👑', name: 'Chasseur de boss', what: 'boss vaincus' },
+  { k: 'perfect', icon: '✨', name: 'Sans une égratignure', what: 'cartes parfaites' },
+  { k: 'graze', icon: '🔥', name: 'Frôleur fou', what: 'frôlements' },
+  { k: 'games', icon: '🔁', name: 'Acharné', what: 'parties jouées' },
+];
+const fsUrl = (path, q) => `https://firestore.googleapis.com/v1/projects/${FB.project}/databases/(default)/documents/${path}?${q ? q + '&' : ''}key=${FB.key}`;
+const fsEnc = o => ({ fields: Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' ? { integerValue: String(Math.round(v)) } : typeof v === 'string' ? { stringValue: v } : { mapValue: fsEnc(v) }])) });
+const fsDec = d => Object.fromEntries(Object.entries((d && d.fields) || {}).map(([k, v]) => [k, 'integerValue' in v ? +v.integerValue : 'doubleValue' in v ? v.doubleValue : 'stringValue' in v ? v.stringValue : 'mapValue' in v ? fsDec(v.mapValue) : null]));
+async function fsCall(path, q, method, body) {
+  const r = await fetch(fsUrl(path, q), { method: method || 'GET', headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(fsEnc(body)) : undefined });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+const nameKey = n => encodeURIComponent(n.trim().toLowerCase().replace(/[^a-z0-9àâäçéèêëîïôöùûü_-]+/g, '_'));
+const cleanName = s => s.replace(/\s+/g, ' ').trim().slice(0, 14);
+// Fusionne une partie dans la fiche du joueur : records au maximum, cumuls additionnés
+function mergeRun(old, run, name) {
+  const p = { name, best: Math.max(old.best || 0, run.score), level: Math.max(old.level || 0, run.level), dist: Math.max(old.dist || 0, run.dist), at: Date.now(), minis: { ...(old.minis || {}) } };
+  for (const k of SUMS) p[k] = (old[k] || 0) + (k === 'games' ? 1 : run[k]);
+  for (const k in run.minis) p.minis[k] = Math.max(p.minis[k] || 0, run.minis[k]);
+  return p;
+}
+async function lbSubmit(run) {
+  if (!LB.on || LB.dead || !LB.name || LB.busy) return;
+  LB.busy = true; lbSend('Envoi du score…');
+  try {
+    const key = nameKey(LB.name), old = fsDec(await fsCall('players/' + key));
+    await fsCall('players/' + key, '', 'PATCH', mergeRun(old, run, LB.name));
+    await fsCall('runs', '', 'POST', { name: LB.name, score: run.score, level: run.level, dist: run.dist, at: Date.now() });
+    LB.rows = LB.runs = null; LB.sent = run;
+    lbSend(run.score > (old.best || 0) && old.games ? 'Record personnel envoyé au classement !' : 'Score envoyé au classement.');
+  } catch (e) { lbSend('Le classement est injoignable, score non envoyé.'); }
+  LB.busy = false;
+}
+function lbSend(t) { $('osend').hidden = !t; $('osend').textContent = t; }
+function lbGameOver(run) {
+  LB.run = run; LB.sent = null; lbSend(''); $('olb').hidden = !LB.on;
+  $('oname').hidden = !LB.on || LB.dead || !!LB.name;
+  if (LB.on && !LB.dead && LB.name) lbSubmit(run);
+}
+function setName(v) {
+  const n = cleanName(v); if (n.length < 2) return false;
+  LB.name = n; try { localStorage.setItem('flappy-seb-name', n); } catch (e) {}
+  return true;
+}
+async function lbLoad() {
+  if (LB.rows || LB.dead) return;
+  try {
+    const [a, b] = await Promise.all([fsCall('players', 'pageSize=300'), fsCall('runs', 'pageSize=15&orderBy=at%20desc')]);
+    LB.rows = ((a && a.documents) || []).map(fsDec).filter(p => p.name && !p.name.startsWith('__'));
+    LB.runs = ((b && b.documents) || []).map(fsDec).filter(p => p.name && !p.name.startsWith('__'));
+  } catch (e) { LB.dead = true; }
+}
+function lbRow(rank, name, sub, val, unit, me) {
+  const row = document.createElement('div'), r = document.createElement('span'), n = document.createElement('span'), v = document.createElement('span');
+  row.className = 'lbrow' + (me ? ' me' : ''); r.className = 'r'; n.className = 'n'; v.className = 'v';
+  r.textContent = rank; n.textContent = name; v.textContent = val;
+  if (sub) { const s = document.createElement('small'); s.textContent = sub; n.appendChild(s); }
+  if (unit) { const s = document.createElement('small'); s.textContent = unit; v.appendChild(s); }
+  row.append(r, n, v); $('lbbox').appendChild(row);
+}
+const lbTop = (rows, f) => rows.reduce((b, p) => f(p) > 0 && (!b || f(p) > f(b)) ? p : b, null);
+function lbRender() {
+  const box = $('lbbox'), rows = LB.rows || [], mine = p => !!LB.name && nameKey(p.name) === nameKey(LB.name);
+  box.textContent = ''; $('lbname').hidden = LB.dead; $('lbin').value = LB.name;
+  for (const b of $('lbtabs').children) b.classList.toggle('on', b.dataset.tab === LB.tab);
+  $('lbtabs').hidden = LB.dead;
+  if (LB.dead) { $('lbmsg').textContent = 'Le classement en ligne ne fonctionne pas depuis cette page. Pour y figurer, joue sur ' + PAGES; return; }
+  if (!LB.rows) { $('lbmsg').textContent = 'Chargement…'; return; }
+  $('lbmsg').textContent = LB.name ? '' : 'Choisis un pseudo pour envoyer tes scores.';
+  if (LB.tab === 'scores') {
+    const held = {}; for (const t of TITLES) { const h = lbTop(rows, p => p[t.k] || 0); if (h) (held[h.name] = held[h.name] || []).push(t.icon); }
+    [...rows].sort((a, b) => (b.best || 0) - (a.best || 0)).forEach((p, i) => lbRow(i + 1, p.name + (held[p.name] ? ' ' + held[p.name].join('') : ''), `niveau ${p.level || 1} · ${p.dist || 0} m · ${p.games || 0} partie${p.games > 1 ? 's' : ''}`, p.best || 0, '', mine(p)));
+    if (!rows.length) $('lbmsg').textContent = 'Personne encore. À toi l\'honneur.';
+  } else if (LB.tab === 'titles') {
+    for (const t of TITLES) { const h = lbTop(rows, p => p[t.k] || 0); lbRow(t.icon, t.name, t.what, h ? h[t.k] : '', h ? h.name : 'à prendre', !!h && mine(h)); }
+  } else if (LB.tab === 'minis') {
+    for (const g of MINIS) { const h = lbTop(rows, p => (p.minis || {})[g.id] || 0); lbRow('🎮', g.name, '', h ? h.minis[g.id] : '', h ? h.name : 'à prendre', !!h && mine(h)); }
+  } else {
+    (LB.runs || []).forEach(p => lbRow('', p.name, `niveau ${p.level || 1} · ${p.dist || 0} m · ${new Date(p.at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`, p.score || 0, '', mine(p)));
+    if (!(LB.runs || []).length) $('lbmsg').textContent = 'Aucune partie enregistrée.';
+  }
+}
+async function openLb(from) {
+  LB.from = from; $('menu').hidden = true; $('over').hidden = true; $('lb').hidden = false;
+  lbRender(); await lbLoad(); lbRender();
+}
+function closeLb() { $('lb').hidden = true; $(LB.from).hidden = false; overT = 0; }
+
 function diff() {
   const d = level - 1;
   return {
@@ -305,7 +458,7 @@ function reset() {
   score = 0; level = 1; cleared = 0; wallCount = 0; smashed = 0; kills = 0;
   walls = []; enemies = []; shots = []; missiles = []; boxes = []; coins = []; parts = []; pops = []; bolts = [];
   item = null; rouletteT = 0; itemNameT = 0; bannerT = 0; portals = []; lastPortal = -99;
-  bossPending = false; bossCount = 0; bul = []; pshots = []; perks = {}; PK = null;
+  bossPending = false; bossCount = 0; bul = []; pshots = []; perks = {}; PK = null; resetStats();
   fx.star = fx.mini = fx.slow = fx.laser = fx.invuln = 0; fx.shield = false;
   P.x = Math.min(W * .28, 300); P.y = H * .42; P.vy = -300; P.rot = 0; P.s = 1; P.spin = 0;
   distToNext = 520; lastGapY = H * .45; biomeT = BIOMES[0]; paused = false;
@@ -322,7 +475,10 @@ function gameOver() {
   if (rec) { best = score; try { localStorage.setItem('flappy-seb-best', best); } catch (e) {} }
   $('oscore').textContent = score; $('obest').textContent = best; $('olevel').textContent = level;
   $('newbest').hidden = !rec; $('quip').textContent = pick(QUIPS);
-  $('ostats').textContent = `${smashed} mur${smashed > 1 ? 's' : ''} pulvérisé${smashed > 1 ? 's' : ''} · ${kills} nuisible${kills > 1 ? 's' : ''} dégommé${kills > 1 ? 's' : ''}`;
+  const run = runStats(), chips = [['📏', run.dist + ' m'], ['⏱️', Math.floor(run.t / 60) + ':' + String(run.t % 60).padStart(2, '0')], ['🐦', run.pigeons], ['🍞', run.toasters], ['💣', run.mines], ['🧱', run.walls], ['🥐', run.coins], ['👑', run.bosses], ['🔥', run.graze]];
+  $('ostats').textContent = '';
+  for (const [ic, v] of chips) if (v) { const s = document.createElement('span'); s.textContent = ic + ' ' + v; $('ostats').appendChild(s); }
+  lbGameOver(run);
   $('menubest').textContent = best;
   $('over').hidden = false; $('fire').hidden = true;
 }
@@ -409,7 +565,7 @@ function onCleared() {
 }
 function destroyWall(w) {
   if (w.dead) return;
-  w.dead = true; smashed++;
+  w.dead = true; smashed++; ST.walls++;
   const th = w.gy - w.gap / 2, by = w.gy + w.gap / 2;
   debris(w.x, 0, w.w, th, w.hue); debris(w.x, by, w.w, GROUND - by, w.hue);
   boom(w.x + w.w / 2, clamp(P.y, 60, GROUND - 60), 1.3);
@@ -418,7 +574,7 @@ function destroyWall(w) {
 }
 function killEnemy(e) {
   if (e.dead) return;
-  e.dead = true; kills++;
+  e.dead = true; kills++; ST[e.type + 's']++;
   const pts = e.type === 'toaster' ? 5 : 2;
   boom(e.x, e.y, e.type === 'mine' ? 1.2 : .8, e.type === 'pigeon' ? '#cfd8dc' : '#ffd23f');
   if (e.type === 'pigeon') for (let i = 0; i < 8; i++)
@@ -460,6 +616,7 @@ function spawnWall() {
 
 /* ---------- Actions du joueur ---------- */
 function flap() {
+  if (!$('lb').hidden) return;
   if (state === 'mini') return miniAction();
   if (state === 'boss') { paused = false; return; }
   if (state === 'perk') return takePerk(PK.sel);
@@ -478,6 +635,7 @@ function syncFire() {
 function useItem() {
   if ((state !== 'play' && state !== 'boss') || paused) return;
   if (!item || rouletteT > 0) { sfx.nope(); return; }
+  ST.items++;
   switch (item.id) {
     case 'missile':
       missiles.push({ x: P.x + 24, y: P.y + (item.ammo % 2 ? -8 : 8), vx: 380, vy: rand(-30, 30), t: 0 });
@@ -540,6 +698,7 @@ function update(rdt) {
   shake *= Math.exp(-rdt * 7); flashA = Math.max(0, flashA - rdt * 2.2); scorePop = Math.max(0, scorePop - rdt * 4);
   if (bannerT > 0) bannerT -= rdt;
   if (itemNameT > 0) itemNameT -= rdt;
+  if (state === 'play' || state === 'boss') { ST.t += rdt; ST.dist += speed * rdt; } else if (state === 'mini') ST.t += rdt;
   if (state === 'mini') { updateMini(rdt); return; }
   if (state === 'boss') { updateBoss(rdt); return; }
   if (state === 'perk') { PK.t += rdt; updateParts(rdt); return; }
@@ -596,7 +755,7 @@ function update(rdt) {
     }
     if (!w.passed && !w.dead && w.x + w.w < P.x - r) {
       w.passed = true; addScore(1); onCleared();
-      if (w.close < 9) { const g = 1 + pk('graze'); addScore(g); pop(P.x + 30, P.y - 40, 'CHAUD ! +' + g, '#ff3d81', 30); }
+      if (w.close < 9) { const g = 1 + pk('graze'); ST.graze++; addScore(g); pop(P.x + 30, P.y - 40, 'CHAUD ! +' + g, '#ff3d81', 30); }
     }
   }
 
@@ -665,7 +824,7 @@ function update(rdt) {
     c.x -= mv;
     const cd = Math.hypot(c.x - P.x, c.y - P.y), mg = pk('magnet');
     if (mg && cd < 70 + 80 * mg) { c.x += (P.x - c.x) * Math.min(1, dt * 7); c.y += (P.y - c.y) * Math.min(1, dt * 7); }
-    if (cd < 20 + r) { const g = 1 + pk('gold'); c.dead = true; addScore(g); sfx.coin(); pop(c.x, c.y - 20, '+' + g, '#ffd23f', 24); }
+    if (cd < 20 + r) { const g = 1 + pk('gold'); c.dead = true; ST.coins++; addScore(g); sfx.coin(); pop(c.x, c.y - 20, '+' + g, '#ffd23f', 24); }
   }
 
   walls = walls.filter(w => w.x > -120 && !w.dead);
@@ -2148,6 +2307,7 @@ function updateMini(dt) {
 function exitMini() {
   parts = []; pops = []; speed = M.sp;
   if (M.train) { state = 'menu'; $('menu').hidden = false; return; }
+  ST.minis[M.game.id] = Math.max(ST.minis[M.game.id] || 0, M.score);
   state = 'play'; addScore(M.score); fx.invuln = 2; P.vy = -320; shots = []; flashA = .5; $('fire').hidden = !COARSE;
   pop(P.x + 60, P.y - 50, '+' + M.score + ' DU MINI-JEU', '#35f0d0', 32);
 }
@@ -2305,7 +2465,7 @@ function setCard() {
 }
 function nextCard(won) {
   const b = BO; b.clear = true;
-  if (won && b.noHit && !b.train) { addScore(5); pop(b.x - 40, b.y - 110, 'CARTE PARFAITE +5', '#35f0d0', 28); }
+  if (won && b.noHit && !b.train) { ST.perfect++; addScore(5); pop(b.x - 40, b.y - 110, 'CARTE PARFAITE +5', '#35f0d0', 28); }
   boom(b.x, b.y, 1.2);
   if (b.card >= b.def.cards.length - 1) { b.phase = 'dead'; b.t = 0; b.st = {}; } else { b.card++; setCard(); }
 }
@@ -2331,7 +2491,7 @@ function bossHit() {
 function finishBoss() {
   const b = BO; boom(b.x, b.y, 2); flashA = .9; bul = []; pshots = []; boxes = [];
   if (b.train) { backToMenu(); return; }
-  const bonus = (b.def.big ? 60 : 30) + 10 * b.n; addScore(bonus); kills++;
+  const bonus = (b.def.big ? 60 : 30) + 10 * b.n; addScore(bonus); kills++; ST.bosses++;
   for (let i = 0; i < 12; i++) coins.push({ x: P.x + 160 + i * 60 + rand(-20, 20), y: rand(120, GROUND - 120), ph: i });
   state = 'play'; bossPending = false; distToNext = 700; fx.invuln = 2.5; P.vy = -300;
   banner('BOSS VAINCU', '+' + bonus + ' points'); sfx.level(); offerPerks(b.def.big ? 4 : 3);
@@ -2427,7 +2587,7 @@ function updateBoss(dt) {
     const d = Math.hypot(q.x - P.x, q.y - P.y);
     if (d < q.r * .8 + 5) { q.dead = true; bossHit(); if (state !== 'boss') return; }
     else if (!q.grazed && d < q.r + 24) {
-      q.grazed = true; b.graze++;
+      q.grazed = true; b.graze++; if (!b.train) ST.graze++;
       part({ t: 0, x: P.x, y: P.y, vx: rand(-220, 220), vy: rand(-220, 220), life: .3, max: .3, size: 4, color: '#fff', g: 0 });
       if (b.graze % 4 === 0 && !b.train) addScore(1 + pk('graze'));
     }
@@ -2511,12 +2671,26 @@ addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Space') M
 function closeTrain() { $('train').hidden = true; $('menu').hidden = false; }
 $('trainbtn').addEventListener('click', () => { $('menu').hidden = true; $('train').hidden = false; });
 $('tback').addEventListener('click', closeTrain);
+$('lbbtn').hidden = !LB.on;
+$('lbbtn').addEventListener('click', () => openLb('menu'));
+$('olb').addEventListener('click', () => openLb('over'));
+$('lbback').addEventListener('click', closeLb);
+$('lbtabs').addEventListener('click', e => { const t = e.target.dataset.tab; if (t) { LB.tab = t; lbRender(); } });
+$('namego').addEventListener('click', () => { if (setName($('namein').value)) { $('oname').hidden = true; lbSubmit(LB.run); } else $('namein').focus(); });
+$('lbset').addEventListener('click', () => {
+  if (!setName($('lbin').value)) { $('lbin').focus(); return; }
+  // Une partie terminée sans pseudo part au classement dès qu'il est choisi
+  if (LB.from === 'over' && LB.run && !LB.sent) { $('oname').hidden = true; lbSubmit(LB.run).then(() => lbLoad()).then(lbRender); }
+  lbRender();
+});
 $('tboss').addEventListener('click', () => { $('train').hidden = true; audioInit(); startBoss(true); });
 $('mgo').addEventListener('click', e => { e.currentTarget.blur(); startCount(); });
 cv.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
   if (e.repeat) return;
   const k = e.code;
+  if (e.target.tagName === 'INPUT') { if (k === 'Enter' || k === 'NumpadEnter') $(e.target.id === 'lbin' ? 'lbset' : 'namego').click(); return; }
+  if (!$('lb').hidden) { if (k === 'Escape') closeLb(); return; }
   if (!$('train').hidden) { if (k === 'Escape') closeTrain(); return; }
   if (state === 'perk') {
     e.preventDefault(); const n = PK.opts.length, i = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Numpad1', 'Numpad2', 'Numpad3', 'Numpad4'].indexOf(k) % 4;

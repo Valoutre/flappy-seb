@@ -1,0 +1,46 @@
+rules_version = '2';
+// Classement de Flappy Seb. À coller dans la console Firebase : Firestore > Règles.
+// Lecture ouverte. Une fiche de joueur ne peut que grandir, une partie ne peut qu'être ajoutée. Aucune suppression.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function okInt(d, k, max) { return d[k] is int && d[k] >= 0 && d[k] <= max; }
+    function okName(d) { return d.name is string && d.name.size() >= 2 && d.name.size() <= 14; }
+    function okMini(n, o, k) { return n.get(k, 0) is int && n.get(k, 0) >= o.get(k, 0) && n.get(k, 0) <= 500; }
+    function okMinis(n, o) {
+      return n is map
+        && n.keys().hasOnly(['invaders', 'breakout', 'dino', 'canon', 'whack', 'catch', 'pong', 'shell', 'race', 'tusmo', 'g2048', 'suika', 'crossy', 'stack', 'ninja', 'piano', 'surv', 'jump'])
+        && okMini(n, o, 'invaders') && okMini(n, o, 'breakout') && okMini(n, o, 'dino') && okMini(n, o, 'canon')
+        && okMini(n, o, 'whack') && okMini(n, o, 'catch') && okMini(n, o, 'pong') && okMini(n, o, 'shell')
+        && okMini(n, o, 'race') && okMini(n, o, 'tusmo') && okMini(n, o, 'g2048') && okMini(n, o, 'suika')
+        && okMini(n, o, 'crossy') && okMini(n, o, 'stack') && okMini(n, o, 'ninja') && okMini(n, o, 'piano')
+        && okMini(n, o, 'surv') && okMini(n, o, 'jump');
+    }
+    function okPlayer(d) {
+      return d.keys().hasOnly(['name', 'best', 'level', 'dist', 'at', 'minis', 'games', 'pigeons', 'toasters', 'mines', 'walls', 'coins', 'bosses', 'perfect', 'graze'])
+        && d.keys().hasAll(['name', 'best', 'level', 'dist', 'at', 'minis', 'games', 'pigeons', 'toasters', 'mines', 'walls', 'coins', 'bosses', 'perfect', 'graze'])
+        && okName(d) && d.at is int
+        && okInt(d, 'best', 100000) && okInt(d, 'level', 1000) && okInt(d, 'dist', 1000000) && okInt(d, 'games', 1000000)
+        && okInt(d, 'pigeons', 10000000) && okInt(d, 'toasters', 10000000) && okInt(d, 'mines', 10000000) && okInt(d, 'walls', 10000000)
+        && okInt(d, 'coins', 10000000) && okInt(d, 'bosses', 1000000) && okInt(d, 'perfect', 1000000) && okInt(d, 'graze', 10000000);
+    }
+    function grows(n, o) {
+      return n.best >= o.best && n.level >= o.level && n.dist >= o.dist && n.games >= o.games
+        && n.pigeons >= o.pigeons && n.toasters >= o.toasters && n.mines >= o.mines && n.walls >= o.walls
+        && n.coins >= o.coins && n.bosses >= o.bosses && n.perfect >= o.perfect && n.graze >= o.graze;
+    }
+
+    match /players/{id} {
+      allow read: if true;
+      allow create: if okPlayer(request.resource.data) && okMinis(request.resource.data.minis, {});
+      allow update: if okPlayer(request.resource.data) && grows(request.resource.data, resource.data)
+        && okMinis(request.resource.data.minis, resource.data.minis);
+    }
+    match /runs/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['name', 'score', 'level', 'dist', 'at'])
+        && request.resource.data.keys().hasAll(['name', 'score', 'level', 'dist', 'at'])
+        && okName(request.resource.data) && request.resource.data.at is int
+        && okInt(request.resource.data, 'score', 100000) && okInt(request.resource.data, 'level', 1000) && okInt(request.resource.data, 'dist', 1000000);
+    }
+  }
+}
