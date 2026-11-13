@@ -327,13 +327,13 @@ function gameOver() {
   $('over').hidden = false; $('fire').hidden = true;
 }
 
-function offerPerks() {
-  const opts = PERKS.filter(p => pk(p.id) < p.max).sort(() => Math.random() - .5).slice(0, 3);
+function offerPerks(k = 3) {
+  const opts = PERKS.filter(p => pk(p.id) < p.max).sort(() => Math.random() - .5).slice(0, k);
   if (!opts.length) return;
   PK = { opts, t: 0, sel: 0 }; state = 'perk'; $('fire').hidden = true;
 }
 function perkRects() {
-  const n = PK.opts.length, wide = W > 720, cw = wide ? Math.min(250, (W - 80) / 3) : Math.min(430, W - 32), ch = wide ? 250 : clamp((H - 170) / 3 - 12, 84, 124), gap = wide ? 20 : 12;
+  const n = PK.opts.length, wide = W > 720, cw = wide ? Math.min(250, (W - 40 - 20 * n) / n) : Math.min(430, W - 32), gap = wide ? 20 : n > 3 ? 8 : 12, ch = wide ? 250 : clamp((H - 150) / n - gap, 70, 124);
   return PK.opts.map((p, i) => wide ? [W / 2 + (i - (n - 1) / 2) * (cw + gap) - cw / 2, Math.max(150, H * .5 - ch / 2), cw, ch] : [(W - cw) / 2, 140 + i * (ch + gap), cw, ch]);
 }
 function takePerk(i) {
@@ -2254,7 +2254,33 @@ const BOSSES = [
       if (every('b', .11)) shoot(BO.x, BO.y, BO.ct * 1.4, 150, { col: 3 });
     } },
   ], draw() { emoji('👵', 120, 0, Math.sin(time * 3) * 5); emoji('🧶', 40, -74, 52, time * 2); } },
+
+  // La fusion : chaque carte rejoue des cartes des trois autres, ralenties
+  { name: 'Le Brunch de l\'Apocalypse', big: true, cards: [
+    { name: 'Tartine Volante', fn() { mix([0, 0, .6], [1, 0, .7]); } },
+    { name: 'Tricot Beurré', fn() { mix([2, 0, .65], [0, 1, .6]); } },
+    { name: 'Escadrille à Aiguilles', fn() { mix([1, 1, .6], [2, 1, .7]); } },
+    { name: 'Brunch Total', fn() {
+      const all = [[0, 2, .5], [1, 2, .5], [2, 2, .5]];
+      if (BO.hp < BO.hpMax * .3) mix(...all); else { const k = Math.floor(BO.ct / 4) % 3; mix(...all.map((m, i) => i === k ? [m[0], m[1], .95] : null)); }
+    } },
+  ], draw() {
+    ctx.save(); ctx.translate(0, 38); ctx.scale(3.2, 3.2); drawEnemy({ type: 'pigeon', x: 0, y: 0, ph: 0 }); ctx.restore();
+    emoji('👵', 96, -8, -58 + Math.sin(time * 3) * 4); emoji('👑', 38, -8, -120 + Math.sin(time * 3) * 4, -.15);
+    ctx.save(); ctx.translate(70, -6 + Math.sin(time * 4) * 5); ctx.rotate(.25); ctx.scale(1.5, 1.5); drawEnemy({ type: 'toaster', x: 0, y: 0, hit: BO.flash }); ctx.restore();
+  } },
 ];
+// Joue plusieurs cartes à la fois, chacune avec son état et sa cadence
+function mix(...subs) {
+  const st = BO.st, rate = BO.rate; st.aim = null;
+  subs.forEach((m, i) => {
+    if (!m) return;
+    BO.st = st['m' + i] || (st['m' + i] = {}); BO.rate = rate * m[2];
+    BOSSES[m[0]].cards[m[1]].fn();
+    if (BO.st.aim) st.aim = BO.st.aim;
+  });
+  BO.st = st; BO.rate = rate;
+}
 
 function bossPointer(e, down) {
   const r = cv.getBoundingClientRect(); if (!r.width) return;
@@ -2281,7 +2307,7 @@ function nextCard(won) {
   const b = BO; b.clear = true;
   if (won && b.noHit && !b.train) { addScore(5); pop(b.x - 40, b.y - 110, 'CARTE PARFAITE +5', '#35f0d0', 28); }
   boom(b.x, b.y, 1.2);
-  if (b.card >= 2) { b.phase = 'dead'; b.t = 0; b.st = {}; } else { b.card++; setCard(); }
+  if (b.card >= b.def.cards.length - 1) { b.phase = 'dead'; b.t = 0; b.st = {}; } else { b.card++; setCard(); }
 }
 function bossDamage(d) {
   const b = BO; if (b.phase !== 'fight' || b.ct < .6) return;
@@ -2305,10 +2331,10 @@ function bossHit() {
 function finishBoss() {
   const b = BO; boom(b.x, b.y, 2); flashA = .9; bul = []; pshots = []; boxes = [];
   if (b.train) { backToMenu(); return; }
-  const bonus = 30 + 10 * b.n; addScore(bonus); kills++;
+  const bonus = (b.def.big ? 60 : 30) + 10 * b.n; addScore(bonus); kills++;
   for (let i = 0; i < 12; i++) coins.push({ x: P.x + 160 + i * 60 + rand(-20, 20), y: rand(120, GROUND - 120), ph: i });
   state = 'play'; bossPending = false; distToNext = 700; fx.invuln = 2.5; P.vy = -300;
-  banner('BOSS VAINCU', '+' + bonus + ' points'); sfx.level(); offerPerks();
+  banner('BOSS VAINCU', '+' + bonus + ' points'); sfx.level(); offerPerks(b.def.big ? 4 : 3);
 }
 function updateBoss(dt) {
   const b = BO; b.t += dt; b.flash = Math.max(0, b.flash - dt);
@@ -2449,7 +2475,7 @@ function drawBossHUD() {
   ctx.fillStyle = '#ff3d81'; rr(x, y, Math.max(12, bw * clamp(b.hp / b.hpMax, 0, 1)), 14, 6); ctx.fill();
   txt('« ' + b.def.cards[b.card].name + ' »', W / 2, y + 36, Math.min(24, W * .06), '#ffd23f', 'center', 5);
   txt(String(Math.max(0, Math.ceil(b.cardT))), x + bw - 4, y + 36, 20, '#fff4d6', 'right', 4);
-  for (let i = 0; i < 3; i++) { ctx.fillStyle = i >= b.card ? '#ffd23f' : 'rgba(255,244,214,.25)'; ctx.beginPath(); ctx.arc(x + 8 + i * 16, y + 36, 5, 0, TAU); ctx.fill(); }
+  for (let i = 0; i < b.def.cards.length; i++) { ctx.fillStyle = i >= b.card ? '#ffd23f' : 'rgba(255,244,214,.25)'; ctx.beginPath(); ctx.arc(x + 8 + i * 16, y + 36, 5, 0, TAU); ctx.fill(); }
 }
 
 /* ---------- Boucle et entrées ---------- */
@@ -2493,7 +2519,7 @@ addEventListener('keydown', e => {
   const k = e.code;
   if (!$('train').hidden) { if (k === 'Escape') closeTrain(); return; }
   if (state === 'perk') {
-    e.preventDefault(); const n = PK.opts.length, i = ['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].indexOf(k) % 3;
+    e.preventDefault(); const n = PK.opts.length, i = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Numpad1', 'Numpad2', 'Numpad3', 'Numpad4'].indexOf(k) % 4;
     if (i >= 0) { PK.sel = Math.min(i, n - 1); takePerk(i); }
     else if (k === 'ArrowLeft' || k === 'ArrowUp') PK.sel = (PK.sel + n - 1) % n;
     else if (k === 'ArrowRight' || k === 'ArrowDown') PK.sel = (PK.sel + 1) % n;
