@@ -343,7 +343,7 @@ function runStats() {
 
 /* ---------- Classement en ligne : Firestore par son API REST ---------- */
 // Config Firebase, publique par nature. Vide : pas de classement.
-const FB = { project: '', key: '' };
+const FB = { project: 'flappy-seb', key: 'AIzaSyBQDH85nTERPg7MsonF3O9X1i6A4VNn1ZQ' };
 const PAGES = 'valoutre.github.io/flappy-seb';
 // La borne d'arcade de Seb Quest (iframe) n'a pas de classement
 const LB = { on: !!FB.project && parent === window, dead: false, name: '', rows: null, runs: null, tab: 'scores', busy: false, from: 'menu' };
@@ -2672,6 +2672,8 @@ function closeTrain() { $('train').hidden = true; $('menu').hidden = false; }
 $('trainbtn').addEventListener('click', () => { $('menu').hidden = true; $('train').hidden = false; });
 $('tback').addEventListener('click', closeTrain);
 $('lbbtn').hidden = !LB.on;
+// Charge le classement d'avance : là où les appels externes sont bloqués, on le sait avant la première fin de partie
+if (LB.on) lbLoad();
 $('lbbtn').addEventListener('click', () => openLb('menu'));
 $('olb').addEventListener('click', () => openLb('over'));
 $('lbback').addEventListener('click', closeLb);
